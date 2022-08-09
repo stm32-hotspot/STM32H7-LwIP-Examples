@@ -6,13 +6,12 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
+  * Copyright (c) 2022 STMicroelectronics.
+  * All rights reserved.
   *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
   *
   ******************************************************************************
   */
@@ -24,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+/* ETH_CODE: add lwiperf, see comment in StartDefaultTask function */
+#include "lwip/apps/lwiperf.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,7 +51,7 @@
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
@@ -82,9 +82,12 @@ int main(void)
   /* USER CODE END 1 */
 
 /* USER CODE BEGIN Boot_Mode_Sequence_1 */
-  __HAL_RCC_HSEM_CLK_ENABLE();
-  while((HSEM_COMMON->ISR & (1 << HSEM_ID_0)) == 0);
-  HSEM_COMMON->ICR = (1 << HSEM_ID_0);
+	/* ETH_CODE: fixed core synchronization
+	 * Busy wait, since entering STOP mode breaks debug session.
+	 */
+	__HAL_RCC_HSEM_CLK_ENABLE();
+	while((__HAL_HSEM_GET_FLAG(__HAL_HSEM_SEMID_TO_MASK(HSEM_ID_0))) == 0);
+	__HAL_HSEM_CLEAR_FLAG(__HAL_HSEM_SEMID_TO_MASK(HSEM_ID_0));
 /* USER CODE END Boot_Mode_Sequence_1 */
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -194,15 +197,30 @@ void StartDefaultTask(void *argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+	/* ETH_CODE: Adding lwiperf to measure TCP/IP performance.
+	 * iperf 2.0.6 (or older?) is required for the tests. Newer iperf2 versions
+	 * might work without data check, but they send different headers.
+	 * iperf3 is not compatible at all.
+	 * Adding lwiperf.c file to the project is necessary.
+	 * The default include path should already contain
+	 * 'lwip/apps/lwiperf.h'
+	 */
+  	LOCK_TCPIP_CORE();
+	lwiperf_start_tcp_server_default(NULL, NULL);
+
+	ip4_addr_t remote_addr;
+	IP4_ADDR(&remote_addr, 192, 168, 1, 1);
+	lwiperf_start_tcp_client_default(&remote_addr, NULL, NULL);
+	UNLOCK_TCPIP_CORE();
+	/* Infinite loop */
+	for(;;)
+	{
+	  osDelay(1000);
+	}
   /* USER CODE END 5 */
 }
 
- /**
+/**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM6 interrupt took place, inside
   * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
@@ -254,5 +272,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

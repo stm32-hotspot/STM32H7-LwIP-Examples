@@ -1,6 +1,6 @@
 # STM32H7 STM32CubeMX based Ethernet examples
 
-*This readme is intended for STM32CubeIDE version 1.6.1 and STM32CubeH7 version 1.9.0*
+*This readme is intended for STM32CubeIDE version 1.9.0 and STM32CubeH7 version 1.10.0. For older tool versions please see older version of this readme in the repository*
 
 Simple Ethernet examples based on LwIP and FreeRTOS, running on ST Nucleo and Discovery boards.
 These examples are provided to accompany the [FAQ article on ST community][faq].
@@ -9,15 +9,53 @@ The same how to step-by-step is also provided [below](#how-to-create-project-fro
 ## Features
 * Fixed IP address 192.168.1.10
 * Code should work even when re-generating the code in STM32CubeMX
+* Changes in code can be find by searching for `ETH_CODE` keyword
 
 ## Release notes
 
 | Version | STM32CubeIDE version | STM32CubeH7 version | Description / Update | Date |
 |--:|--:|--:|--|--:|
+| 1.2 | 1.9.0 | 1.10.0 | Ported to new IDE/library version. Ethernet driver reworked in new library release. Added iperf measurement and TCP/IP settings tuned. Published on Github | August 9<sup>th</sup> 2022 |
 | 1.1 | 1.6.1 | 1.9.0 | Added Cortex-M4 base examples | July 19<sup>th</sup> 2021 |
 | 1.0 | 1.6.1 | 1.9.0 | Initial release on ST community (with minor changes on Github) | June 21<sup>st</sup> 2021 |
 
 Using GIT tags it should be easy to find examples for particular version of STM32CubeIDE and HAL library
+
+## TCP/IP configuration in LwIP
+
+Below configuration is necessary to achieve good TCP/IP performance
+
+|Parameter|Value|Formula|Needs to be changed in MX|
+|:-|-:|-:|-:|
+| TCP_MSS | 1460 | `1500-40`| **yes** |
+| TCP_SND_BUF | 5840 | `4 * TCP_MSS` | **yes** |
+| TCP_WND | 5840 | `4 * TCP_MSS` | no |
+| TCP_SND_QUEUELEN | 16 | `UPPER((4 * TCP_SND_BUF) / TCP_MSS)` |  **yes** | 
+
+## Memory layout
+
+On STM32H74x/H75x devices, all data related to Ethernet and LwIP are placed in D2 SRAM memory (288kB).
+First 128kB of this memory are reserved for Cortex-M4 on dual-core devices. On single core devices this part can be used for other purposes.
+
+| Variable | STM32H74x/H75x address | Cortex-M4 alias | Size | Source file |
+|:-|-:|-:|-:|-:|
+|DMARxDscrTab|0x30040000|0x10040000|96 (256 max.)|ethernetif.c|
+|DMATxDscrTab|0x30040100|0x10040100|96 (256 max.)|ethernetif.c|
+|memp_memory_RX_POOL_base|0x30040200|0x10040200|12*(1536 + 24)|ethernetif.c|
+|LwIP heap|0x30020000|0x10020000|131048 (128kB - 24)|lwipopts.h|
+
+
+For STM32H72x/H73x devices, the D2 SRAM is more limited (only 32kB). The RX buffers need to be placed in AXI SRAM, since they won't fit to D2 RAM, together with LwIP heap.
+The LwIP heap is reduced to fit the rest of D2 RAM together with DMA descriptors.
+
+| Variable | STM32H72x/H73x address | Size | Source file |
+|:-|-:|-:|-:|
+|DMARxDscrTab|0x30000000|96 (256 max.)|ethernetif.c|
+|DMATxDscrTab|0x30000100|96 (256 max.)|ethernetif.c|
+|memp_memory_RX_POOL_base|AXI SRAM (32-byte aligned)|12*(1536 + 24)|ethernetif.c|
+|LwIP heap|0x30000200|32232 (32kB - 512 - 24)|lwipopts.h|
+
+*Value provided here are an example implementation, other configurations are also possible in order to optimize memory usage. When changing memory layout, the MPU configuration needs to be updated accordingly.*
 
 ## License
 
@@ -69,16 +107,21 @@ Configure clock tree:
 _The ETH_MDC speed couldn't be changed for some reason, but it doesn't affect the application and it was already fixed in new versions._
 
 ## Cortex-M7 configuration
+This step can be skipped when using Cortex-M4 core.
 
 * Enable ICache and DCache.
 * Enable memory protection unit (MPU) in “Background Region Privileged access only + MPU Disabled ...” mode. Configure regions according to the picture below:
 
 ![MPU configuration](img/04_mpu_configuration.png "MPU configuration")
 
+*Above example is for STM32H743 device. For other devices or Cortex-M4 core on dual-core device, different addresses and size might be necessary. Please refer to section [Memory layout](#memory-layout)*
+
+*When using dual-core device and running Ethernet on Cortex-M7 core, it must be ensured that memory used by Ethernet is not used by Cortex-M4. Also note the Cortex-M4 can use different address alias for D2 RAM*
+
 ## FreeRTOS configuration
 
 * Enable the FreeRTOS with CMSIS_V1 API.
-* Increase the size of defaultTask stack to 256 words
+* Increase the size of defaultTask stack to 512 words[^1]
 * Lower stack values cause memory corruptions
 * Please check also that the generated code is correct, since there is bug when increasing the MINIMAL_STACK_SIZE and there might be old value in code (this should be fixed in new versions)
 
@@ -92,34 +135,58 @@ _The ETH_MDC speed couldn't be changed for some reason, but it doesn't affect th
 ![LwIP IP address configuration](img/06_lwip_address.png "LwIP IP address configuration")
 
 * In the attached examples, the 192.168.1.10 IP address is used (instead of 192.168.0.10 shown on the screenshot).
-* In "Platform settings" tab select "LAN8742" in both select boxes. The LAN8742 driver is also compatible with LAN8740 device, which is actually present on the STM32H750-Discovery board. The main difference between these devices is support of MII interface.
+* In "Platform settings" tab select "LAN8742" in both select boxes. The LAN8742 driver is also compatible with LAN8740 device, which is actually present on the STM32H750-Discovery board. The main difference between these devices is support of MII interface. On other boards LAN8742 PHY chip is used.
 
 ![LwIP BSP selection](img/07_lwip_bsp.png "LwIP BSP selection")
-
-* In "Checksum" tab enable CHECKSUM_BY_HARDWARE. Other options should automatically reconfigure and you can leave them in this state.
-
-![LwIP checksum selection](img/08_lwip_checksum.png "LwIP BSP selection")
 
 In "Key options" tab:
 * Configure MEM_SIZE to 16360. This specifies the heap size, which we will relocated to D2 SRAM (16kb minus 24 bytes for allocator metadata).
 * Also enable LWIP_NETIF_LINK_CALLBACK (needed for cable plugging/unplugging detection).
+* Set the LWIP_RAM_HEAP_POINTER to proper address[^2]
+* Set the MEM_SIZE parameter to proper size[^2]
+
+![LwIP heap configuration](img/07b_lwip_heap.png "LwIP heap configuration")
+
+* (Should be done automatically by new CubeMX) In "Checksum" tab enable CHECKSUM_BY_HARDWARE. Other options should automatically reconfigure and you can leave them in this state.
+
+![LwIP checksum selection](img/08_lwip_checksum.png "LwIP BSP selection")
 
 ## Generate project
 
 Save project to some folder of your selection. Now you can generate the project for IDE. We will use STM32CubeIDE in this example, but it should work with other IDEs.
 
 ## Modyfying the code (STM32CubeIDE)
-* Add following code to lwipopts.h in user section, which will relocated LwIP heap to D2 SRAM:
+There are several places where some additional code should be placed, also depending on selected device. In the examples all these places are marked with comment containing `ETH_CODE` and some basic explanation. Searching for `ETH_CODE` can show all these places.
+
+Only main interesting points are mentioned below:
+* Placement of the RX_POOL buffers (although we configured the address in CubeMX) in ethernetif.c[^2]:
 ```c
-/* USER CODE BEGIN 1 */
-#define LWIP_RAM_HEAP_POINTER (0x30044000)
-/* USER CODE END 1 */
+/* USER CODE BEGIN 2 */
+#if defined ( __ICCARM__ ) /*!< IAR Compiler */
+#pragma location = 0x30040200
+extern u8_t memp_memory_RX_POOL_base[];
+
+#elif defined ( __CC_ARM )  /* MDK ARM Compiler */
+__attribute__((at(0x30040200)) extern u8_t memp_memory_RX_POOL_base[];
+
+#elif defined ( __GNUC__ ) /* GNU Compiler */
+__attribute__((section(".Rx_PoolSection"))) extern u8_t memp_memory_RX_POOL_base[];
+
+#endif
+/* USER CODE END 2 */
+```
+* In new STM32CubeIDE v1.9.0 the GCC was updated to version 10. This changes default handling of COMMON sections (https://gcc.gnu.org/gcc-10/changes.html). This can lead to compilation errors with errno variable being defined multiple times. This can happen when FreeRTOS + LwIP is enabled. To workaround this issue please put following code in lwipopts.h (https://github.com/STMicroelectronics/stm32_mw_lwip/issues/1 ):
+```c
+/* USER CODE BEGIN 1 /
+#undef LWIP_PROVIDE_ERRNO
+#define LWIP_ERRNO_STDINCLUDE
+/ USER CODE END 1 */
 ```
 * Add DATA_IN_D2_SRAM to macro definitions in project: 
 
 ![Define symbols in STM32CubeIDE](img/09_project_preprocessor.png "Define symbols in STM32CubeIDE")
 
-### Modify linkerscript (not valid for Keil/IAR)
+### Modify linkerscript (not valid for Keil/IAR)[^2]
 This step should be skipped for Keil and IAR, since they support placing variables at specific address in C code.
 Modify the linkerscript (*.ld) that the ETH descriptors and buffers are located in D2 SRAM. Also it is recommended to place all RAM to RAM_D1.
 In STM32CubeMX generated project, the "_FLASH" suffix linkerscript should be modified, which is used by default (e.g.: STM32H750XBHx_FLASH.ld). The "_RAM" suffix linkerscript is template for executing code from internal RAM memory.
@@ -127,7 +194,8 @@ In STM32CubeMX generated project, the "_FLASH" suffix linkerscript should be mod
   } >RAM_D1
 
   /* Modification start */
-  .lwip_sec (NOLOAD) : {
+  .lwip_sec (NOLOAD) :
+  {
     . = ABSOLUTE(0x30040000);
     *(.RxDecripSection) 
     
@@ -135,7 +203,7 @@ In STM32CubeMX generated project, the "_FLASH" suffix linkerscript should be mod
     *(.TxDecripSection)
     
     . = ABSOLUTE(0x30040200);
-    *(.RxArraySection) 
+    *(.Rx_PoolSection)  
   } >RAM_D2
   /* Modification end */
 
@@ -152,15 +220,17 @@ The memory definitions at the beginning of the linkerscript should look like:
 ```ld
 MEMORY
 {
-    FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 1024K
-    DTCMRAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
-    RAM_D1 (xrw)      : ORIGIN = 0x24000000, LENGTH = 512K
-    RAM_D2 (xrw)      : ORIGIN = 0x30000000, LENGTH = 288K
-    RAM_D3 (xrw)      : ORIGIN = 0x38000000, LENGTH = 64K
-    ITCMRAM (xrw)      : ORIGIN = 0x00000000, LENGTH = 64K
+  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 128K
+  DTCMRAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K
+  RAM_D1 (xrw)   : ORIGIN = 0x24000000, LENGTH = 512K
+  RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K
+  RAM_D3 (xrw)   : ORIGIN = 0x38000000, LENGTH = 64K
+  ITCMRAM (xrw)  : ORIGIN = 0x00000000, LENGTH = 64K
 }
 ```
-### Adding simple Hello UDP message
+For dual core devices it is better to restrict RAM_D2 section to avoid collision with Cortex-M4. Please see the linkerscripts in examples.
+
+### (Optional) Adding simple Hello UDP message
 
 * Add following include files at the beginning of main.c:
 ```c
@@ -221,6 +291,13 @@ When facing issues with your own project:
 1. When allocating buffers via pbuf_alloc (or similar), PBUF_RAM must be used as 3rd parameter. This is necessary to ensure that the allocated buffer is placed in D2 SRAM and synchronized with DMA
 1. Not sufficient stack size for different thread can cause issues.
 	* Enabling [stack overflow detection][freertos_stack] can help identify where is the problem
+
+## Questions & Feedback
+
+If you see any issue with these examples please fill an issue inside this repository. If you face some difficulties, but not sure if this is an issue you can start discussion inside this repository, or you can start thread on [ST community](https://community.st.com)
+
+[^1]: Exact size required for different stacks might depend on used compiler and optimization flags. Same goes for FreeRTOS heap size, since thread stacks are allocated from this heap.
+[^2]: Some addresses and sizes depend on the device or core used. Please refer to section [Memory layout](#memory-layout).
 
 [freertos_stack]: https://www.freertos.org/Stacks-and-stack-overflow-checking.html
 [cubeh7]: https://github.com/STMicroelectronics/STM32CubeH7

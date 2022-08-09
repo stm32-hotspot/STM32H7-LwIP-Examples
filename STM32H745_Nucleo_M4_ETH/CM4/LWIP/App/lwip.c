@@ -1,3 +1,4 @@
+/* USER CODE BEGIN Header */
 /**
  ******************************************************************************
   * File Name          : LWIP.c
@@ -6,16 +7,16 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
+  * Copyright (c) 2022 STMicroelectronics.
+  * All rights reserved.
   *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
   *
   ******************************************************************************
   */
+/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "lwip.h"
@@ -53,7 +54,13 @@ osThreadAttr_t attributes;
 /* USER CODE END OS_THREAD_ATTR_CMSIS_RTOS_V2 */
 
 /* USER CODE BEGIN 2 */
-
+/* ETH_CODE: workaround to call LOCK_TCPIP_CORE after tcpip_init in MX_LWIP_Init
+ * This is to keep the code after MX code re-generation */
+static inline void tcpip_init_wrap(tcpip_init_done_fn tcpip_init_done, void *arg){
+	tcpip_init(tcpip_init_done, arg);
+	LOCK_TCPIP_CORE();
+}
+#define tcpip_init tcpip_init_wrap
 /* USER CODE END 2 */
 
 /**
@@ -116,7 +123,8 @@ void MX_LWIP_Init(void)
 /* USER CODE END H7_OS_THREAD_NEW_CMSIS_RTOS_V2 */
 
 /* USER CODE BEGIN 3 */
-
+  /* ETH_CODE: call UNLOCK_TCPIP_CORE after we are done */
+  UNLOCK_TCPIP_CORE();
 /* USER CODE END 3 */
 }
 
@@ -219,4 +227,3 @@ u32_t sio_tryread(sio_fd_t fd, u8_t *data, u32_t len)
 }
 #endif /* MDK ARM Compiler */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

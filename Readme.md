@@ -14,6 +14,7 @@ The same how to step-by-step is also provided [below](#how-to-create-project-fro
 
 | Version | STM32CubeIDE version | STM32CubeH7 version | Description / Update | Date |
 |--:|--:|--:|--|--:|
+| 1.1 | 1.6.1 | 1.9.0 | Added Cortex-M4 base examples | July 19<sup>th</sup> 2021 |
 | 1.0 | 1.6.1 | 1.9.0 | Initial release on ST community (with minor changes on Github) | June 21<sup>st</sup> 2021 |
 
 Using GIT tags it should be easy to find examples for particular version of STM32CubeIDE and HAL library
